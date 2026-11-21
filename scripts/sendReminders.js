@@ -1,10 +1,10 @@
-const admin = require('firebase-admin');
+const { initializeApp, cert } = require('firebase-admin/app');
+const { getFirestore, FieldValue } = require('firebase-admin/firestore');
 
-admin.initializeApp({
-  credential: admin.credential.cert(JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT)),
+initializeApp({
+  credential: cert(JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT)),
 });
-const db = admin.firestore();
-const { FieldValue } = admin.firestore;
+const db = getFirestore();
 
 const MIN = 60 * 1000;
 const TZ_OFFSET_H = 4; // Mauritius = UTC+4
