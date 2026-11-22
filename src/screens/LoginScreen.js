@@ -15,6 +15,7 @@ export default function LoginScreen({ navigation }) {
     }
     try {
       await signInWithEmailAndPassword(auth, email.trim(), password);
+      Alert.alert('Login successful', 'Welcome back to ParkPro!');
     } catch (err) {
       Alert.alert('Login Failed', 'Wrong email or password.');
     }

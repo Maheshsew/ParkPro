@@ -1,13 +1,17 @@
 import { useState, useEffect } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, StyleSheet, ActivityIndicator, Modal, Pressable } from 'react-native';
 import { Alert } from '../components/Popup';
-import { subscribeToSpaces, getSlotStatus, getBlockingReservation, getBooking, cancelBooking } from '../storage/bookingStore';
+import {
+  subscribeToSpaces, getSlotStatus, getBlockingReservation, getBooking, cancelBooking,
+  getOverlap, moveBooking, subscribeToActiveBooking,
+} from '../storage/bookingStore';
 import { useAuth } from '../context/AuthContext';
-import { COL_E, COL_A, COL_B, COL_C, COL_D, COL_F } from '../constants/spaces';
+import { COL_E, COL_A, COL_B, COL_C, COL_D, COL_F, ALL_SPACES } from '../constants/spaces';
 import {
   closingLabel, hoursLabel, openingOf, closingOf, latestStartOf,
 } from '../constants/hours';
 import Ionicons from '@expo/vector-icons/Ionicons';
+import ActiveBookingCard from '../components/ActiveBookingCard';
 
 const DURATIONS = [1, 2, 3, 4, 6, 8];
 const HOUR_MS = 3600 * 1000;
@@ -44,15 +48,19 @@ const nowStart = () => {
 
 const STATUS_COLOR = { green: '#16a34a', yellow: '#FFD000', red: '#ef4444' };
 
-function ParkingSlot({ space, status, bookable, onPress }) {
+function ParkingSlot({ space, status, bookable, conflict, onPress }) {
   return (
     <TouchableOpacity
-      style={[styles.slotIconBox, { backgroundColor: STATUS_COLOR[status] }]}
+      style={[
+        styles.slotIconBox,
+        { backgroundColor: conflict ? '#f97316' : STATUS_COLOR[status] },
+        conflict && styles.slotConflict,
+      ]}
       onPress={() => bookable && onPress(space)}
       disabled={!bookable}
       activeOpacity={bookable ? 0.7 : 1}
     >
-      <Ionicons name="car" size={22} color="#000000" />
+      <Ionicons name={conflict ? 'warning' : 'car'} size={22} color="#000000" />
     </TouchableOpacity>
   );
 }
@@ -71,7 +79,7 @@ function Lane({ label }) {
 }
 
 export default function ParkingSpacesScreen({ navigation }) {
-  const { isAdmin } = useAuth();
+  const { user, isAdmin } = useAuth();
   const [spaces, setSpaces] = useState({});
   const [loading, setLoading] = useState(true);
   const [now, setNow] = useState(Date.now());
@@ -81,6 +89,9 @@ export default function ParkingSpacesScreen({ navigation }) {
   const [adminSpace, setAdminSpace] = useState(null);
   const [adminBooking, setAdminBooking] = useState(null);
   const [adminLoading, setAdminLoading] = useState(false);
+  const [conflict, setConflict] = useState(null); // { space, overstay, waiting }
+  const [activeBooking, setActiveBooking] = useState(null);
+  const [bookingChecked, setBookingChecked] = useState(false);
 
   useEffect(() => {
     const unsubscribe = subscribeToSpaces((map) => {
@@ -94,6 +105,20 @@ export default function ParkingSpacesScreen({ navigation }) {
     const t = setInterval(() => setNow(Date.now()), 30000);
     return () => clearInterval(t);
   }, []);
+
+  // Customer: watch their active booking (the map is hidden while they have one)
+  useEffect(() => {
+    if (!user || isAdmin) {
+      setActiveBooking(null);
+      setBookingChecked(true);
+      return;
+    }
+    setBookingChecked(false);
+    return subscribeToActiveBooking(user.uid, (b) => {
+      setActiveBooking(b);
+      setBookingChecked(true);
+    });
+  }, [user?.uid, isAdmin]);
 
   const days = Array.from({ length: 7 }, (_, i) => {
     const d = new Date();
@@ -114,7 +139,7 @@ export default function ParkingSpacesScreen({ navigation }) {
     s.setFullYear(d.getFullYear(), d.getMonth(), d.getDate());
     setStart(fix(s));
   };
-    const stepHour = (n) => {
+  const stepHour = (n) => {
     const s = new Date(start);
     const first = openingOf(s).getHours();
     const last = latestStartOf(s).getHours();
@@ -142,6 +167,9 @@ export default function ParkingSpacesScreen({ navigation }) {
 
   // Admin: tap a booked space -> load the booking that holds it for the chosen window
   const openBooked = async (space) => {
+    const overlap = getOverlap(spaces[space.id]?.reservations, Date.now());
+    if (overlap) return openConflict(space, overlap);
+
     const r = getBlockingReservation(spaces[space.id]?.reservations, startMs, endMs);
     if (!r) return;
     setAdminSpace(space);
@@ -160,6 +188,37 @@ export default function ParkingSpacesScreen({ navigation }) {
   const closeAdminPopup = () => {
     setAdminSpace(null);
     setAdminBooking(null);
+  };
+
+  const openConflict = async (space, overlap) => {
+    try {
+      const [overstay, waiting] = await Promise.all([
+        getBooking(overlap.overstay.bookingId),
+        getBooking(overlap.waiting.bookingId),
+      ]);
+      setConflict({ space, overstay, waiting, waitingRes: overlap.waiting });
+    } catch (e) {
+      Alert.alert('Error', e.message);
+    }
+  };
+
+  const handleMove = (target) => {
+    const { space, waiting } = conflict;
+    Alert.alert('Move booking', `Move ${waiting.bookingId} to space ${target.label}?`, [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Move',
+        onPress: async () => {
+          try {
+            await moveBooking(waiting.bookingId, space.id, target);
+            setConflict(null);
+            Alert.alert('Moved', `${waiting.bookingId} is now on space ${target.label}. Tell the customer.`);
+          } catch (e) {
+            Alert.alert('Error', e.message === 'SPACE_TAKEN' ? 'That space was just taken. Pick another.' : e.message);
+          }
+        },
+      },
+    ]);
   };
 
   const handleCancelBooking = () => {
@@ -187,8 +246,7 @@ export default function ParkingSpacesScreen({ navigation }) {
     );
   };
 
-
-  if (loading) {
+  if (loading || (user && !isAdmin && !bookingChecked)) {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color="#FFD000" />
@@ -196,29 +254,56 @@ export default function ParkingSpacesScreen({ navigation }) {
     );
   }
 
+  // A customer with an active booking sees the booking, not the map
+  if (!isAdmin && activeBooking) {
+    return <ActiveBookingCard booking={activeBooking} />;
+  }
+
+  const overlapCount = isAdmin
+    ? ALL_SPACES.filter((s) => getOverlap(spaces[s.id]?.reservations, now)).length
+    : 0;
+
+  const freeSpaces = conflict
+    ? ALL_SPACES.filter(
+        (s) =>
+          s.id !== conflict.space.id &&
+          getSlotStatus(spaces[s.id]?.reservations, conflict.waitingRes.start, conflict.waitingRes.end) === 'green'
+      )
+    : [];
+
   const renderColumn = (list) =>
     list.map((space) => {
       const status = getSlotStatus(spaces[space.id]?.reservations, startMs, endMs);
-      // customers tap green spaces, admin taps booked (red/yellow) spaces
-      const bookable = isAdmin ? status !== 'green' : status === 'green' && !isPast;
+      const overlap = isAdmin ? getOverlap(spaces[space.id]?.reservations, now) : null;
+      const bookable = isAdmin ? status !== 'green' || !!overlap : status === 'green' && !isPast;
       return (
         <ParkingSlot
           key={space.id}
           space={space}
           status={status}
           bookable={bookable}
+          conflict={!!overlap}
           onPress={isAdmin ? openBooked : setSelected}
         />
       );
-  });
+    });
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
       <Text style={styles.title}>Select a Parking Space</Text>
       <Text style={styles.subtitle}>
-                {isAdmin ? 'Admin view — tap a booked space to see details or cancel' : 'Choose when you want to park, then tap a green space'}
+        {isAdmin ? 'Admin view — tap a booked space to see details or cancel' : 'Choose when you want to park, then tap a green space'}
       </Text>
       <Text style={styles.hours}>Open daily {hoursLabel}</Text>
+
+      {overlapCount > 0 && (
+        <View style={styles.overlapBanner}>
+          <Ionicons name="warning" size={18} color="#000000" />
+          <Text style={styles.overlapBannerText}>
+            {overlapCount} space{overlapCount > 1 ? 's' : ''} overlapping: a car is past its time and another customer is waiting. Tap the orange space.
+          </Text>
+        </View>
+      )}
 
       {/* When? bar */}
       <View style={styles.whenBox}>
@@ -364,6 +449,48 @@ export default function ParkingSpacesScreen({ navigation }) {
         </Pressable>
       </Modal>
 
+      {/* Admin: overlap popup */}
+      <Modal visible={!!conflict} transparent animationType="fade" onRequestClose={() => setConflict(null)}>
+        <Pressable style={styles.overlay} onPress={() => setConflict(null)}>
+          <Pressable style={styles.popup} onPress={() => {}}>
+            <View style={[styles.popupIcon, { backgroundColor: '#f97316' }]}>
+              <Ionicons name="warning" size={30} color="#000000" />
+            </View>
+            <Text style={styles.popupTitle}>Space {conflict?.space.label} overlapping</Text>
+
+            {conflict && (
+              <View style={styles.detailBox}>
+                <Text style={[styles.detailRow, { color: '#f97316', fontWeight: '700' }]}>Still parked (overtime)</Text>
+                <Text style={styles.detailRow}>{conflict.overstay.bookingId} · {conflict.overstay.name} · {conflict.overstay.phone}</Text>
+                <Text style={styles.detailRow}>Vehicle: {conflict.overstay.vehicleReg}</Text>
+                <Text style={styles.detailRow}>Should have left: {fmtDateTime(conflict.overstay.expectedDeparture)}</Text>
+
+                <Text style={[styles.detailRow, { color: '#FFD000', fontWeight: '700', marginTop: 10 }]}>Waiting for the space</Text>
+                <Text style={styles.detailRow}>{conflict.waiting.bookingId} · {conflict.waiting.name} · {conflict.waiting.phone}</Text>
+                <Text style={styles.detailRow}>Vehicle: {conflict.waiting.vehicleReg}</Text>
+                <Text style={styles.detailRow}>
+                  {fmtDateTime(conflict.waiting.createdAt)} to {fmtDateTime(conflict.waiting.expectedDeparture)}
+                </Text>
+              </View>
+            )}
+
+            <Text style={styles.detailRow}>Move the waiting booking to:</Text>
+            <View style={styles.chipRow}>
+              {freeSpaces.length === 0 && <Text style={styles.detailRow}>No free space for this window.</Text>}
+              {freeSpaces.map((s) => (
+                <TouchableOpacity key={s.id} style={styles.spaceChip} onPress={() => handleMove(s)}>
+                  <Text style={styles.spaceChipText}>{s.label}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            <TouchableOpacity style={styles.closeButton} onPress={() => setConflict(null)}>
+              <Text style={styles.closeButtonText}>Close</Text>
+            </TouchableOpacity>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
     </ScrollView>
   );
 }
@@ -438,4 +565,10 @@ const styles = StyleSheet.create({
   detailRow: { color: '#FFFFFF', fontSize: 14, marginBottom: 4 },
   cancelBookingButton: { backgroundColor: '#ef4444', paddingVertical: 14, borderRadius: 10, alignSelf: 'stretch' },
   cancelBookingText: { color: '#FFFFFF', fontSize: 16, fontWeight: '600', textAlign: 'center' },
+  slotConflict: { borderWidth: 2, borderColor: '#FFFFFF' },
+  overlapBanner: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#f97316', borderRadius: 10, padding: 12, marginTop: 12, marginHorizontal: 4 },
+  overlapBannerText: { flex: 1, color: '#000000', fontSize: 13, fontWeight: '600' },
+  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 8, marginBottom: 14, alignSelf: 'stretch' },
+  spaceChip: { backgroundColor: '#16a34a', paddingVertical: 8, paddingHorizontal: 14, borderRadius: 8 },
+  spaceChipText: { color: '#000000', fontWeight: '700' },
 });

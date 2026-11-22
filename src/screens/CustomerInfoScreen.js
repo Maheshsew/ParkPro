@@ -7,7 +7,6 @@ import { useAuth } from '../context/AuthContext';
 import { hoursLabel, closingLabel, validateWindow } from '../constants/hours';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import QRCode from 'react-native-qrcode-svg';
-import { bookingReminders } from '../notifications';
 
 const fmt = (d) =>
   new Date(d).toLocaleString([], { weekday: 'short', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
@@ -72,23 +71,14 @@ export default function CustomerInfoScreen({ route, navigation }) {
         setEmailSent(false);
       }
 
-      try {
-        await bookingReminders.scheduleForBooking({
-          bookingId: id,
-          uid: user.uid,
-          spaceLabel: space.label,
-          start,
-          end: expected,
-        });
-      } catch (e) {
-        console.log('REMINDER ERROR:', e.message);
-      }
-
       setBooked({ bookingId: id });
     } catch (e) {
       if (e.message === 'SPACE_TAKEN') {
         Alert.alert('Space unavailable', 'Sorry, this space was just booked for that time. Please pick another one.');
         navigation.goBack();
+      } else if (e.message === 'ALREADY_BOOKED') {
+        Alert.alert('Booking exists', 'You already have an active booking. You can book again after you leave.');
+        navigation.popToTop();
       } else if (e.message === 'OUTSIDE_HOURS') {
         Alert.alert('Outside opening hours', `Parking is open ${hoursLabel}. Go back and adjust your time.`);
       } else {
@@ -226,7 +216,7 @@ const styles = StyleSheet.create({
   priceValue: { color: '#FFD000', fontSize: 26, fontWeight: 'bold', marginVertical: 4 },
   priceNote: { color: '#BDBDBD', fontSize: 12, textAlign: 'center' },
   note: { color: '#BDBDBD', fontSize: 12, marginBottom: 6, textAlign: 'center' },
-  closingNote: { color: '#BDBDBD',fontSize: 12, fontWeight: '600', marginBottom: 8, textAlign: 'center' },
+  closingNote: { color: '#BDBDBD', fontSize: 12, fontWeight: '600', marginBottom: 8, textAlign: 'center' },
   primaryButton: { backgroundColor: '#FFD000', paddingVertical: 16, borderRadius: 10, marginTop: 10 },
   primaryButtonText: { color: '#000000', fontSize: 17, fontWeight: '600', textAlign: 'center' },
   successTitle: { fontSize: 26, fontWeight: 'bold', color: '#16a34a', textAlign: 'center', marginBottom: 10 },

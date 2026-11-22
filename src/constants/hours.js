@@ -1,5 +1,5 @@
 export const OPENING = { hour: 8, minute: 0 };
-export const CLOSING = { hour: 17, minute: 0 };
+export const CLOSING = { hour: 22, minute: 0 };
 
 const HOUR_MS = 3600 * 1000;
 const pad = (n) => String(n).padStart(2, '0');

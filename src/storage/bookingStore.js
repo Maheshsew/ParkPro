@@ -1,6 +1,6 @@
 import { db } from '../firebase/config';
 import {
-  doc, getDoc, updateDoc, collection, onSnapshot, runTransaction,
+  doc, getDoc, updateDoc, collection, onSnapshot, runTransaction, query, where, getDocs,
 } from 'firebase/firestore';
 import { closingOf, validateWindow } from '../constants/hours';
 
@@ -57,6 +57,10 @@ export async function createBooking({ uid, name, email, phone, vehicleReg, space
 
   if (validateWindow(startMs, endMs)) {
     throw new Error('OUTSIDE_HOURS');
+  }
+
+  if (await hasActiveBooking(uid)) {
+    throw new Error('ALREADY_BOOKED');
   }
 
   return runTransaction(db, async (tx) => {
@@ -159,4 +163,65 @@ export function subscribeToSpaces(callback) {
     });
     callback(map);
   });
+}
+
+// Overlap: a car is past its end time and another booking on the same space has already started
+export function getOverlap(reservations, nowMs = Date.now()) {
+  const list = reservations || [];
+  const overstay = list.find((r) => r.end < nowMs);
+  if (!overstay) return null;
+  const waiting = list.find(
+    (r) => r.bookingId !== overstay.bookingId && r.start <= nowMs && r.end > nowMs
+  );
+  return waiting ? { overstay, waiting } : null;
+}
+
+// Admin: move a booking to another space (same time window)
+export async function moveBooking(bookingId, fromSpaceId, toSpace) {
+  const bookingRef = doc(db, 'bookings', bookingId);
+  const fromRef = doc(db, 'spaces', fromSpaceId);
+  const toRef = doc(db, 'spaces', toSpace.id);
+
+  await runTransaction(db, async (tx) => {
+    const fromSnap = await tx.get(fromRef);
+    const toSnap = await tx.get(toRef);
+    const fromList = fromSnap.exists() ? fromSnap.data().reservations || [] : [];
+    const toList = toSnap.exists() ? toSnap.data().reservations || [] : [];
+
+    const moving = fromList.find((r) => r.bookingId === bookingId);
+    if (!moving) throw new Error('Booking not found on this space.');
+    if (getSlotStatus(toList, moving.start, moving.end) !== 'green') throw new Error('SPACE_TAKEN');
+
+    tx.update(fromRef, { reservations: fromList.filter((r) => r.bookingId !== bookingId) });
+    tx.set(toRef, { reservations: [...toList, moving] });
+    tx.update(bookingRef, {
+      space: { id: toSpace.id, label: `Space ${toSpace.label}`, pricePerHour: toSpace.pricePerHour },
+      movedFrom: fromSpaceId,
+    });
+  });
+}
+
+
+const activeQuery = (uid) =>
+  query(collection(db, 'bookings'), where('uid', '==', uid), where('status', '==', 'PENDING_PAYMENT'));
+
+// Live: the customer's active booking (null if none)
+export function subscribeToActiveBooking(uid, callback) {
+  return onSnapshot(
+    activeQuery(uid),
+    (snap) => {
+      const list = snap.docs
+        .map((d) => d.data())
+        .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+      callback(list[0] || null);
+    },
+    (e) => {
+      console.log('ACTIVE BOOKING ERROR:', e.message);
+      callback(null);
+    }
+  );
+}
+
+export async function hasActiveBooking(uid) {
+  return !(await getDocs(activeQuery(uid))).empty;
 }
