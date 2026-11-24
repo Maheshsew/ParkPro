@@ -8,7 +8,7 @@ const db = getFirestore();
 
 const MIN = 60 * 1000;
 const TZ_OFFSET_H = 4; // Mauritius = UTC+4
-const CLOSING = { hour: 23, minute: 0 }; // keep the same as CLOSING in src/constants/hours.js
+const CLOSING = { hour: 24, minute: 0 }; // keep the same as CLOSING in src/constants/hours.js
 
 const hhmm = (ms) =>
   new Date(ms).toLocaleTimeString('en-GB', {
