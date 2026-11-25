@@ -2,7 +2,7 @@ import React, { createContext, useContext, useEffect, useState } from 'react';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore';
 import { auth, db } from '../firebase/config';
-import { pushTokens } from '../notifications';
+import { scheduler } from '../notifications';
 
 const AuthContext = createContext();
 
@@ -39,7 +39,7 @@ export function AuthProvider({ children }) {
   }, []);
 
   const logout = async () => {
-    if (user) await pushTokens.unregister(user.uid);
+    await scheduler.cancelAll();
     return signOut(auth);
   };
 

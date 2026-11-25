@@ -300,7 +300,7 @@ export default function ParkingSpacesScreen({ navigation }) {
         <View style={styles.overlapBanner}>
           <Ionicons name="warning" size={18} color="#000000" />
           <Text style={styles.overlapBannerText}>
-            {overlapCount} space{overlapCount > 1 ? 's' : ''} overlapping: a car is past its time and another customer is waiting. Tap the orange space.
+            {overlapCount} space{overlapCount > 1 ? 's' : ''} overlapping: a car is past its time and the next booking starts soon. Tap the orange space.
           </Text>
         </View>
       )}
@@ -343,25 +343,31 @@ export default function ParkingSpacesScreen({ navigation }) {
           </TouchableOpacity>
         </View>
 
-        <Text style={styles.whenLabel}>Expected duration (must end by {closingLabel})</Text>
-        <View style={styles.chips}>
-          {DURATIONS.map((h) => {
-            const disabled = h > maxHours;
-            return (
-              <TouchableOpacity
-                key={h}
-                style={[styles.chip, dur === h && styles.chipActive, disabled && styles.chipDisabled]}
-                onPress={() => setHours(h)}
-                disabled={disabled}
-              >
-                <Text style={[styles.chipText, dur === h && styles.chipTextActive]}>{h}h</Text>
-              </TouchableOpacity>
-            );
-          })}
-        </View>
+        {!isAdmin && (
+          <>
+            <Text style={styles.whenLabel}>Expected duration (must end by {closingLabel})</Text>
+            <View style={styles.chips}>
+              {DURATIONS.map((h) => {
+                const disabled = h > maxHours;
+                return (
+                  <TouchableOpacity
+                    key={h}
+                    style={[styles.chip, dur === h && styles.chipActive, disabled && styles.chipDisabled]}
+                    onPress={() => setHours(h)}
+                    disabled={disabled}
+                  >
+                    <Text style={[styles.chipText, dur === h && styles.chipTextActive]}>{h}h</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </>
+        )}
 
         <Text style={styles.summary}>
-          {dayLabel(start)}, {timeLabel(start)} → {timeLabel(end)}
+          {isAdmin
+            ? `${dayLabel(start)}, ${timeLabel(start)}`
+            : `${dayLabel(start)}, ${timeLabel(start)} → ${timeLabel(end)}`}
         </Text>
         {isPast && <Text style={styles.pastWarning}>This start time has passed. Tap "Now" or choose a later time.</Text>}
       </View>
@@ -465,7 +471,7 @@ export default function ParkingSpacesScreen({ navigation }) {
                 <Text style={styles.detailRow}>Vehicle: {conflict.overstay.vehicleReg}</Text>
                 <Text style={styles.detailRow}>Should have left: {fmtDateTime(conflict.overstay.expectedDeparture)}</Text>
 
-                <Text style={[styles.detailRow, { color: '#FFD000', fontWeight: '700', marginTop: 10 }]}>Waiting for the space</Text>
+                <Text style={[styles.detailRow, { color: '#FFD000', fontWeight: '700', marginTop: 10 }]}>Next booking on this space</Text>
                 <Text style={styles.detailRow}>{conflict.waiting.bookingId} · {conflict.waiting.name} · {conflict.waiting.phone}</Text>
                 <Text style={styles.detailRow}>Vehicle: {conflict.waiting.vehicleReg}</Text>
                 <Text style={styles.detailRow}>
@@ -474,7 +480,7 @@ export default function ParkingSpacesScreen({ navigation }) {
               </View>
             )}
 
-            <Text style={styles.detailRow}>Move the waiting booking to:</Text>
+            <Text style={styles.detailRow}>Move the next booking to:</Text>
             <View style={styles.chipRow}>
               {freeSpaces.length === 0 && <Text style={styles.detailRow}>No free space for this window.</Text>}
               {freeSpaces.map((s) => (

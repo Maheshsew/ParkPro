@@ -40,10 +40,10 @@ export default class ReminderScheduler {
     return this.ready;
   }
 
-  // Returns the notification ID
+  // Fires at a future date. Returns the notification ID
   async schedule(title, body, date) {
     return Notifications.scheduleNotificationAsync({
-      content: { title, body },
+      content: { title, body, sound: 'default' },
       trigger: {
         type: Notifications.SchedulableTriggerInputTypes.DATE,
         date,
@@ -52,9 +52,17 @@ export default class ReminderScheduler {
     });
   }
 
-  async cancel(id) {
+  // Fires right now
+  async notifyNow(title, body) {
+    return Notifications.scheduleNotificationAsync({
+      content: { title, body, sound: 'default' },
+      trigger: { channelId: CHANNEL_ID },
+    });
+  }
+
+  async cancelAll() {
     try {
-      await Notifications.cancelScheduledNotificationAsync(id);
+      await Notifications.cancelAllScheduledNotificationsAsync();
     } catch (e) {}
   }
 }

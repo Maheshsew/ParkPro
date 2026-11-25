@@ -165,13 +165,14 @@ export function subscribeToSpaces(callback) {
   });
 }
 
-// Overlap: a car is past its end time and another booking on the same space has already started
+// Overlap: a car is past its end time and the next booking on the same space
+// starts within 15 minutes (or has already started)
 export function getOverlap(reservations, nowMs = Date.now()) {
   const list = reservations || [];
   const overstay = list.find((r) => r.end < nowMs);
   if (!overstay) return null;
   const waiting = list.find(
-    (r) => r.bookingId !== overstay.bookingId && r.start <= nowMs && r.end > nowMs
+    (r) => r.bookingId !== overstay.bookingId && r.start <= nowMs + 15 * 60 * 1000 && r.end > nowMs
   );
   return waiting ? { overstay, waiting } : null;
 }

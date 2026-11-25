@@ -6,7 +6,6 @@ import { sendBookingEmail } from '../utils/sendBookingEmail';
 import { useAuth } from '../context/AuthContext';
 import { hoursLabel, closingLabel, validateWindow } from '../constants/hours';
 import Ionicons from '@expo/vector-icons/Ionicons';
-import QRCode from 'react-native-qrcode-svg';
 
 const fmt = (d) =>
   new Date(d).toLocaleString([], { weekday: 'short', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
@@ -16,8 +15,6 @@ export default function CustomerInfoScreen({ route, navigation }) {
   const { user, profile } = useAuth();
 
   const [vehicleReg, setVehicleReg] = useState(profile?.vehicleReg || '');
-  const [booked, setBooked] = useState(null); // { bookingId }
-  const [emailSent, setEmailSent] = useState(true);
   const [submitting, setSubmitting] = useState(false);
 
   const start = new Date(startTime);
@@ -56,6 +53,7 @@ export default function CustomerInfoScreen({ route, navigation }) {
         expectedDeparture: expected.toISOString(),
       });
 
+      let emailOk = true;
       try {
         await sendBookingEmail({
           name: profile.fullName,
@@ -64,14 +62,18 @@ export default function CustomerInfoScreen({ route, navigation }) {
           space,
           vehicleReg: cleanReg,
         });
-        setEmailSent(true);
       } catch (e) {
         console.log('EMAIL ERROR:', e.message);
-        Alert.alert('Email failed', e.message);
-        setEmailSent(false);
+        emailOk = false;
       }
 
-      setBooked({ bookingId: id });
+      Alert.alert(
+        'Booking complete!',
+        emailOk
+          ? `A confirmation has been sent to ${profile.email}`
+          : 'Booking saved, but the email could not be sent. Your QR code is on the Parking page.'
+      );
+      navigation.popToTop();
     } catch (e) {
       if (e.message === 'SPACE_TAKEN') {
         Alert.alert('Space unavailable', 'Sorry, this space was just booked for that time. Please pick another one.');
@@ -99,40 +101,6 @@ export default function CustomerInfoScreen({ route, navigation }) {
           <Text style={styles.primaryButtonText}>Go to Login</Text>
         </TouchableOpacity>
       </View>
-    );
-  }
-
-  // Booking confirmation
-  if (booked) {
-    return (
-      <ScrollView contentContainerStyle={[styles.container, { paddingBottom: 40 }]}>
-        <Text style={styles.successTitle}>Booking Complete!</Text>
-        <Text style={styles.successText}>
-          {emailSent
-            ? 'A confirmation has been sent to ' + profile.email
-            : 'Booking saved, but the email could not be sent. Keep your QR code below.'}
-        </Text>
-
-        <View style={styles.idBox}>
-          <Text style={styles.idLabel}>Your Booking QR Code</Text>
-          <View style={styles.qrWrap}>
-            <QRCode value={`PARKPRO:${booked.bookingId}`} size={180} />
-          </View>
-          <Text style={styles.idLabel}>{space.label}</Text>
-          <Text style={styles.idLabel}>Starts: {fmt(start)}</Text>
-          <Text style={styles.idLabel}>Expected departure: {fmt(expected)}</Text>
-        </View>
-
-        <Text style={styles.note}>
-          Parking ends only when the admin scans your Booking QR code. You pay for the actual time parked,
-          Rs{space.pricePerHour} per hour, and any started hour counts as a full hour.
-        </Text>
-        <Text style={styles.closingNote}>Please leave before closing time ({closingLabel}).</Text>
-
-        <TouchableOpacity style={styles.primaryButton} onPress={() => navigation.navigate('Home')}>
-          <Text style={styles.primaryButtonText}>Back to Home</Text>
-        </TouchableOpacity>
-      </ScrollView>
     );
   }
 
@@ -221,9 +189,6 @@ const styles = StyleSheet.create({
   primaryButtonText: { color: '#000000', fontSize: 17, fontWeight: '600', textAlign: 'center' },
   successTitle: { fontSize: 26, fontWeight: 'bold', color: '#16a34a', textAlign: 'center', marginBottom: 10 },
   successText: { fontSize: 15, color: '#BDBDBD', textAlign: 'center', marginBottom: 30 },
-  idBox: { backgroundColor: '#171717', borderRadius: 10, padding: 20, alignItems: 'center', marginBottom: 20 },
-  idLabel: { fontSize: 13, color: '#BDBDBD', marginBottom: 6 },
-  idValue: { color: '#FFFFFF', fontSize: 28, fontWeight: 'bold', letterSpacing: 1, marginBottom: 8 },
   backButton: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -236,5 +201,4 @@ const styles = StyleSheet.create({
     backgroundColor: '#171717',
   },
   backButtonText: { color: '#FFD000', fontSize: 17, fontWeight: '600', marginLeft: 8 },
-  qrWrap: { backgroundColor: '#FFFFFF', padding: 12, borderRadius: 10, marginBottom: 14 },
 });
